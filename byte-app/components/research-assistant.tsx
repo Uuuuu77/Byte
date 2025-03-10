@@ -1,6 +1,14 @@
 "use client"
 
-import { DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuLabel,
+  DropdownMenuGroup,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu"
 
 import type React from "react"
 import { useState, useEffect, useRef } from "react"
@@ -24,14 +32,6 @@ import {
 } from "lucide-react"
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import { DisclaimerBanner } from "@/components/disclaimer-banner"
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuSeparator,
-  DropdownMenuLabel,
-  DropdownMenuGroup,
-} from "@/components/ui/dropdown-menu"
 import { Terminal } from "@/components/ui/terminal"
 import { useAuth } from "@/lib/auth-context"
 import { useToast } from "@/components/ui/use-toast"
@@ -1074,4 +1074,3 @@ export function ResearchAssistant() {
     </div>
   )
 }
-
