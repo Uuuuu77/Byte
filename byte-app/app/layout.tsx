@@ -6,6 +6,7 @@ import { AuthProvider } from "@/lib/auth-context"
 import { StripeProvider } from "@/lib/stripe-provider"
 import { PreferencesProvider } from "@/contexts/preferences-context"
 import { Toaster } from "@/components/ui/toaster"
+import { Suspense } from "react"
 
 const inter = Inter({ subsets: ["latin"] })
 
@@ -27,7 +28,11 @@ export default function RootLayout({
           <StripeProvider>
             <PreferencesProvider>
               <Header />
-              <main className="flex-grow">{children}</main>
+              <main className="flex-grow">
+                <Suspense fallback={<div className="flex justify-center items-center min-h-[60vh]">Loading...</div>}>
+                  {children}
+                </Suspense>
+              </main>
               <footer className="border-t border-gray-800 bg-primary-black/80 backdrop-blur-md py-4">
                 <div className="container mx-auto px-4 sm:px-6 lg:px-8 text-center text-sm text-secondary-light/60">
                   © 2025 BYTE AI Research Assistant. All rights reserved.

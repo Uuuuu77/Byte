@@ -1,19 +1,49 @@
 "use client"
 
-import type React from "react"
+import { DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
 
+import type React from "react"
 import { useState, useEffect, useRef } from "react"
-import { useRouter, useSearchParams } from "next/navigation"
+import { useRouter } from "next/navigation"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
-import { AlertCircle, Loader2, Send, Settings, Copy, Trash2, RefreshCw, ChevronDown, Bot, User } from "lucide-react"
+import {
+  AlertCircle,
+  Loader2,
+  Send,
+  Settings,
+  Copy,
+  Check,
+  Trash2,
+  RefreshCw,
+  ChevronDown,
+  Bot,
+  User,
+  Info,
+  AlertTriangle,
+} from "lucide-react"
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import { DisclaimerBanner } from "@/components/disclaimer-banner"
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuLabel,
+  DropdownMenuGroup,
+} from "@/components/ui/dropdown-menu"
 import { Terminal } from "@/components/ui/terminal"
 import { useAuth } from "@/lib/auth-context"
 import { useToast } from "@/components/ui/use-toast"
-import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle, SheetTrigger } from "@/components/ui/sheet"
+import {
+  Sheet,
+  SheetContent,
+  SheetDescription,
+  SheetHeader,
+  SheetTitle,
+  SheetTrigger,
+  SheetFooter,
+} from "@/components/ui/sheet"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Label } from "@/components/ui/label"
 import { Switch } from "@/components/ui/switch"
@@ -21,6 +51,7 @@ import { Textarea } from "@/components/ui/textarea"
 import type { ResearchMode, AIModel } from "@/types/ai"
 import { addToResearchHistory } from "@/utils/user-preferences"
 import { cn } from "@/lib/utils"
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip"
 
 interface Message {
   id: string
@@ -54,21 +85,25 @@ export function ResearchAssistant() {
   const [availableModels, setAvailableModels] = useState<string[]>([])
   const [showSettings, setShowSettings] = useState(false)
   const [autoScroll, setAutoScroll] = useState(true)
+  const [apiKeyValidationStatus, setApiKeyValidationStatus] = useState<Record<string, boolean>>({})
 
   const { user, loading: authLoading } = useAuth()
   const router = useRouter()
-  const searchParams = useSearchParams()
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLInputElement>(null)
   const { toast } = useToast()
 
-  // Check for query parameter to pre-fill the input
+  // Initialize from URL query parameter if present
   useEffect(() => {
-    const queryParam = searchParams.get("query")
-    if (queryParam) {
-      setInput(queryParam)
+    // We'll use a safer approach that doesn't rely on useSearchParams
+    if (typeof window !== "undefined") {
+      const params = new URLSearchParams(window.location.search)
+      const queryParam = params.get("query")
+      if (queryParam) {
+        setInput(queryParam)
+      }
     }
-  }, [searchParams])
+  }, [])
 
   // Scroll to bottom when messages change
   useEffect(() => {
@@ -115,17 +150,38 @@ export function ResearchAssistant() {
     }
   }
 
+  const validateApiKey = async (provider: string, key: string) => {
+    if (!key) {
+      setApiKeyValidationStatus((prev) => ({ ...prev, [provider]: false }))
+      return false
+    }
+
+    try {
+      const response = await fetch(`/api/validate-key?provider=${provider}&key=${encodeURIComponent(key)}`)
+      const data = await response.json()
+
+      setApiKeyValidationStatus((prev) => ({ ...prev, [provider]: data.valid }))
+      return data.valid
+    } catch (error) {
+      console.error(`Error validating ${provider} API key:`, error)
+      setApiKeyValidationStatus((prev) => ({ ...prev, [provider]: false }))
+      return false
+    }
+  }
+
   const isModelAvailable = (modelName: string): boolean => {
     if (modelName === "auto") return true
 
     if (modelName.startsWith("groq-")) {
-      return availableModels.includes("groq") || apiKeys.groq !== ""
+      return availableModels.includes("groq") || apiKeys.groq !== "" || apiKeyValidationStatus["groq"]
     } else if (modelName.startsWith("google-")) {
-      return availableModels.includes("google") || apiKeys.google !== ""
+      return availableModels.includes("google") || apiKeys.google !== "" || apiKeyValidationStatus["google"]
     } else if (modelName.startsWith("openai-")) {
-      return availableModels.includes("openai") || apiKeys.openai !== ""
+      return availableModels.includes("openai") || apiKeys.openai !== "" || apiKeyValidationStatus["openai"]
     } else if (modelName.startsWith("hf-")) {
-      return availableModels.includes("huggingface") || apiKeys.huggingface !== ""
+      return (
+        availableModels.includes("huggingface") || apiKeys.huggingface !== "" || apiKeyValidationStatus["huggingface"]
+      )
     }
 
     return false
@@ -287,6 +343,31 @@ export function ResearchAssistant() {
     setInput("")
   }
 
+  const saveApiKeys = async () => {
+    // Validate API keys
+    const groqValid = await validateApiKey("groq", apiKeys.groq)
+    const googleValid = await validateApiKey("google", apiKeys.google)
+    const openaiValid = await validateApiKey("openai", apiKeys.openai)
+    const huggingfaceValid = await validateApiKey("huggingface", apiKeys.huggingface)
+
+    // Check available models
+    checkAvailableModels()
+
+    // Show toast with validation results
+    if (groqValid || googleValid || openaiValid || huggingfaceValid) {
+      toast({
+        title: "API Keys Saved",
+        description: "Your API keys have been saved for this session",
+      })
+    } else {
+      toast({
+        title: "Warning",
+        description: "No valid API keys were detected. Some models may not be available.",
+        variant: "destructive",
+      })
+    }
+  }
+
   const renderMessageContent = (content: string) => {
     return content.split("\n\n").map((paragraph, index) => {
       if (paragraph.startsWith("```")) {
@@ -420,56 +501,212 @@ export function ResearchAssistant() {
                 <ChevronDown className="ml-2 h-4 w-4" />
               </Button>
             </DropdownMenuTrigger>
-            <DropdownMenuContent align="end" className="bg-primary-black border-gray-800">
-              <DropdownMenuItem onClick={() => setModel("auto")}>Auto-select Model</DropdownMenuItem>
-
-              <div className="px-2 py-1 text-xs text-secondary-light/60">Groq Models</div>
-              <DropdownMenuItem
-                onClick={() => setModel("groq-deepseek-r1")}
-                disabled={!isModelAvailable("groq-deepseek-r1")}
-                className={!isModelAvailable("groq-deepseek-r1") ? "opacity-50" : ""}
-              >
-                Deepseek R1 (Recommended)
-              </DropdownMenuItem>
-              <DropdownMenuItem
-                onClick={() => setModel("groq-mixtral-8x7b")}
-                disabled={!isModelAvailable("groq-mixtral-8x7b")}
-                className={!isModelAvailable("groq-mixtral-8x7b") ? "opacity-50" : ""}
-              >
-                Mixtral 8x7b
-              </DropdownMenuItem>
-              <DropdownMenuItem
-                onClick={() => setModel("groq-llama-3-3")}
-                disabled={!isModelAvailable("groq-llama-3-3")}
-                className={!isModelAvailable("groq-llama-3-3") ? "opacity-50" : ""}
-              >
-                Llama 3.3
+            <DropdownMenuContent align="end" className="bg-primary-black border-gray-800 max-h-[60vh] overflow-y-auto">
+              <DropdownMenuItem onClick={() => setModel("auto")}>
+                <div className="flex items-center">
+                  <span>Auto-select Model</span>
+                  <TooltipProvider>
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <Info className="h-4 w-4 ml-2 text-secondary-light/60" />
+                      </TooltipTrigger>
+                      <TooltipContent>
+                        <p className="w-[200px] text-xs">
+                          Automatically selects the best model based on your query and available API keys
+                        </p>
+                      </TooltipContent>
+                    </Tooltip>
+                  </TooltipProvider>
+                </div>
               </DropdownMenuItem>
 
-              <div className="px-2 py-1 text-xs text-secondary-light/60">Google Models</div>
-              <DropdownMenuItem
-                onClick={() => setModel("google-gemini-pro")}
-                disabled={!isModelAvailable("google-gemini-pro")}
-                className={!isModelAvailable("google-gemini-pro") ? "opacity-50" : ""}
-              >
-                Gemini Pro
-              </DropdownMenuItem>
+              <DropdownMenuSeparator />
+              <DropdownMenuLabel>Groq Models</DropdownMenuLabel>
+              <DropdownMenuGroup>
+                <DropdownMenuItem
+                  onClick={() => setModel("groq-deepseek-r1")}
+                  disabled={!isModelAvailable("groq-deepseek-r1")}
+                  className={!isModelAvailable("groq-deepseek-r1") ? "opacity-50" : ""}
+                >
+                  Deepseek R1 (Recommended)
+                </DropdownMenuItem>
+                <DropdownMenuItem
+                  onClick={() => setModel("groq-mixtral-8x7b")}
+                  disabled={!isModelAvailable("groq-mixtral-8x7b")}
+                  className={!isModelAvailable("groq-mixtral-8x7b") ? "opacity-50" : ""}
+                >
+                  Mixtral 8x7b
+                </DropdownMenuItem>
+                <DropdownMenuItem
+                  onClick={() => setModel("groq-llama-3-70b")}
+                  disabled={!isModelAvailable("groq-llama-3-70b")}
+                  className={!isModelAvailable("groq-llama-3-70b") ? "opacity-50" : ""}
+                >
+                  Llama 3 (70B)
+                </DropdownMenuItem>
+                <DropdownMenuItem
+                  onClick={() => setModel("groq-llama-3-8b")}
+                  disabled={!isModelAvailable("groq-llama-3-8b")}
+                  className={!isModelAvailable("groq-llama-3-8b") ? "opacity-50" : ""}
+                >
+                  Llama 3 (8B)
+                </DropdownMenuItem>
+                <DropdownMenuItem
+                  onClick={() => setModel("groq-codellama-70b")}
+                  disabled={!isModelAvailable("groq-codellama-70b")}
+                  className={!isModelAvailable("groq-codellama-70b") ? "opacity-50" : ""}
+                >
+                  CodeLlama (70B)
+                </DropdownMenuItem>
+                <DropdownMenuItem
+                  onClick={() => setModel("groq-gemma-7b")}
+                  disabled={!isModelAvailable("groq-gemma-7b")}
+                  className={!isModelAvailable("groq-gemma-7b") ? "opacity-50" : ""}
+                >
+                  Gemma (7B)
+                </DropdownMenuItem>
+                <DropdownMenuItem
+                  onClick={() => setModel("groq-mixtral-moe")}
+                  disabled={!isModelAvailable("groq-mixtral-moe")}
+                  className={!isModelAvailable("groq-mixtral-moe") ? "opacity-50" : ""}
+                >
+                  Mixtral MoE
+                </DropdownMenuItem>
+              </DropdownMenuGroup>
 
-              <div className="px-2 py-1 text-xs text-secondary-light/60">OpenAI Models</div>
-              <DropdownMenuItem
-                onClick={() => setModel("openai-gpt4")}
-                disabled={!isModelAvailable("openai-gpt4")}
-                className={!isModelAvailable("openai-gpt4") ? "opacity-50" : ""}
-              >
-                GPT-4
-              </DropdownMenuItem>
-              <DropdownMenuItem
-                onClick={() => setModel("openai-gpt4-turbo")}
-                disabled={!isModelAvailable("openai-gpt4-turbo")}
-                className={!isModelAvailable("openai-gpt4-turbo") ? "opacity-50" : ""}
-              >
-                GPT-4 Turbo
-              </DropdownMenuItem>
+              <DropdownMenuSeparator />
+              <DropdownMenuLabel>Google Models</DropdownMenuLabel>
+              <DropdownMenuGroup>
+                <DropdownMenuItem
+                  onClick={() => setModel("google-gemini-pro")}
+                  disabled={!isModelAvailable("google-gemini-pro")}
+                  className={!isModelAvailable("google-gemini-pro") ? "opacity-50" : ""}
+                >
+                  Gemini Pro
+                </DropdownMenuItem>
+                <DropdownMenuItem
+                  onClick={() => setModel("google-gemini-ultra")}
+                  disabled={!isModelAvailable("google-gemini-ultra")}
+                  className={!isModelAvailable("google-gemini-ultra") ? "opacity-50" : ""}
+                >
+                  Gemini Ultra
+                </DropdownMenuItem>
+                <DropdownMenuItem
+                  onClick={() => setModel("google-gemma-2-9b")}
+                  disabled={!isModelAvailable("google-gemma-2-9b")}
+                  className={!isModelAvailable("google-gemma-2-9b") ? "opacity-50" : ""}
+                >
+                  Gemma 2 (9B)
+                </DropdownMenuItem>
+                <DropdownMenuItem
+                  onClick={() => setModel("google-gemma-2-27b")}
+                  disabled={!isModelAvailable("google-gemma-2-27b")}
+                  className={!isModelAvailable("google-gemma-2-27b") ? "opacity-50" : ""}
+                >
+                  Gemma 2 (27B)
+                </DropdownMenuItem>
+                <DropdownMenuItem
+                  onClick={() => setModel("google-palm-2")}
+                  disabled={!isModelAvailable("google-palm-2")}
+                  className={!isModelAvailable("google-palm-2") ? "opacity-50" : ""}
+                >
+                  PaLM 2
+                </DropdownMenuItem>
+              </DropdownMenuGroup>
+
+              <DropdownMenuSeparator />
+              <DropdownMenuLabel>OpenAI Models</DropdownMenuLabel>
+              <DropdownMenuGroup>
+                <DropdownMenuItem
+                  onClick={() => setModel("openai-gpt4o")}
+                  disabled={!isModelAvailable("openai-gpt4o")}
+                  className={!isModelAvailable("openai-gpt4o") ? "opacity-50" : ""}
+                >
+                  GPT-4o
+                </DropdownMenuItem>
+                <DropdownMenuItem
+                  onClick={() => setModel("openai-gpt4")}
+                  disabled={!isModelAvailable("openai-gpt4")}
+                  className={!isModelAvailable("openai-gpt4") ? "opacity-50" : ""}
+                >
+                  GPT-4
+                </DropdownMenuItem>
+                <DropdownMenuItem
+                  onClick={() => setModel("openai-gpt4-turbo")}
+                  disabled={!isModelAvailable("openai-gpt4-turbo")}
+                  className={!isModelAvailable("openai-gpt4-turbo") ? "opacity-50" : ""}
+                >
+                  GPT-4 Turbo
+                </DropdownMenuItem>
+                <DropdownMenuItem
+                  onClick={() => setModel("openai-gpt3.5-turbo")}
+                  disabled={!isModelAvailable("openai-gpt3.5-turbo")}
+                  className={!isModelAvailable("openai-gpt3.5-turbo") ? "opacity-50" : ""}
+                >
+                  GPT-3.5 Turbo
+                </DropdownMenuItem>
+                <DropdownMenuItem
+                  onClick={() => setModel("openai-claude-3-opus")}
+                  disabled={!isModelAvailable("openai-claude-3-opus")}
+                  className={!isModelAvailable("openai-claude-3-opus") ? "opacity-50" : ""}
+                >
+                  Claude 3 Opus
+                </DropdownMenuItem>
+                <DropdownMenuItem
+                  onClick={() => setModel("openai-claude-3-sonnet")}
+                  disabled={!isModelAvailable("openai-claude-3-sonnet")}
+                  className={!isModelAvailable("openai-claude-3-sonnet") ? "opacity-50" : ""}
+                >
+                  Claude 3 Sonnet
+                </DropdownMenuItem>
+                <DropdownMenuItem
+                  onClick={() => setModel("openai-claude-3-haiku")}
+                  disabled={!isModelAvailable("openai-claude-3-haiku")}
+                  className={!isModelAvailable("openai-claude-3-haiku") ? "opacity-50" : ""}
+                >
+                  Claude 3 Haiku
+                </DropdownMenuItem>
+              </DropdownMenuGroup>
+
+              <DropdownMenuSeparator />
+              <DropdownMenuLabel>Hugging Face Models</DropdownMenuLabel>
+              <DropdownMenuGroup>
+                <DropdownMenuItem
+                  onClick={() => setModel("hf-mistralai/Mistral-7B-Instruct-v0.2")}
+                  disabled={!isModelAvailable("hf-mistralai/Mistral-7B-Instruct-v0.2")}
+                  className={!isModelAvailable("hf-mistralai/Mistral-7B-Instruct-v0.2") ? "opacity-50" : ""}
+                >
+                  Mistral 7B
+                </DropdownMenuItem>
+                <DropdownMenuItem
+                  onClick={() => setModel("hf-meta-llama/Llama-2-70b-chat-hf")}
+                  disabled={!isModelAvailable("hf-meta-llama/Llama-2-70b-chat-hf")}
+                  className={!isModelAvailable("hf-meta-llama/Llama-2-70b-chat-hf") ? "opacity-50" : ""}
+                >
+                  Llama 2 (70B)
+                </DropdownMenuItem>
+                <DropdownMenuItem
+                  onClick={() => setModel("hf-bigcode/starcoder2-15b")}
+                  disabled={!isModelAvailable("hf-bigcode/starcoder2-15b")}
+                  className={!isModelAvailable("hf-bigcode/starcoder2-15b") ? "opacity-50" : ""}
+                >
+                  StarCoder 2 (15B)
+                </DropdownMenuItem>
+                <DropdownMenuItem
+                  onClick={() => setModel("hf-google/flan-t5-xxl")}
+                  disabled={!isModelAvailable("hf-google/flan-t5-xxl")}
+                  className={!isModelAvailable("hf-google/flan-t5-xxl") ? "opacity-50" : ""}
+                >
+                  Flan-T5 XXL
+                </DropdownMenuItem>
+                <DropdownMenuItem
+                  onClick={() => setModel("hf-stabilityai/stablelm-tuned-alpha-7b")}
+                  disabled={!isModelAvailable("hf-stabilityai/stablelm-tuned-alpha-7b")}
+                  className={!isModelAvailable("hf-stabilityai/stablelm-tuned-alpha-7b") ? "opacity-50" : ""}
+                >
+                  StableLM (7B)
+                </DropdownMenuItem>
+              </DropdownMenuGroup>
             </DropdownMenuContent>
           </DropdownMenu>
 
@@ -505,8 +742,27 @@ export function ResearchAssistant() {
                   </TabsList>
 
                   <TabsContent value="api-keys" className="space-y-4 mt-4">
+                    <Alert className="bg-yellow-900/20 border-yellow-900/50 mb-4">
+                      <AlertTriangle className="h-4 w-4 text-yellow-500" />
+                      <AlertDescription className="text-yellow-500">
+                        API keys are stored only in your browser for this session and are never saved on our servers.
+                      </AlertDescription>
+                    </Alert>
+
                     <div className="space-y-2">
-                      <Label htmlFor="groq-api-key">Groq API Key</Label>
+                      <Label htmlFor="groq-api-key" className="flex items-center">
+                        Groq API Key
+                        {apiKeyValidationStatus["groq"] === true && (
+                          <span className="ml-2 text-xs text-green-500 flex items-center">
+                            <Check className="h-3 w-3 mr-1" /> Valid
+                          </span>
+                        )}
+                        {apiKeyValidationStatus["groq"] === false && apiKeys.groq && (
+                          <span className="ml-2 text-xs text-red-500 flex items-center">
+                            <AlertCircle className="h-3 w-3 mr-1" /> Invalid
+                          </span>
+                        )}
+                      </Label>
                       <Textarea
                         id="groq-api-key"
                         placeholder="Enter your Groq API key"
@@ -514,10 +770,33 @@ export function ResearchAssistant() {
                         onChange={(e) => setApiKeys((prev) => ({ ...prev, groq: e.target.value }))}
                         className="bg-primary-black/60 border-gray-800"
                       />
+                      <p className="text-xs text-secondary-light/60">
+                        Get your API key from{" "}
+                        <a
+                          href="https://console.groq.com/keys"
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="text-primary-orange hover:underline"
+                        >
+                          Groq Console
+                        </a>
+                      </p>
                     </div>
 
                     <div className="space-y-2">
-                      <Label htmlFor="google-api-key">Google AI API Key</Label>
+                      <Label htmlFor="google-api-key" className="flex items-center">
+                        Google AI API Key
+                        {apiKeyValidationStatus["google"] === true && (
+                          <span className="ml-2 text-xs text-green-500 flex items-center">
+                            <Check className="h-3 w-3 mr-1" /> Valid
+                          </span>
+                        )}
+                        {apiKeyValidationStatus["google"] === false && apiKeys.google && (
+                          <span className="ml-2 text-xs text-red-500 flex items-center">
+                            <AlertCircle className="h-3 w-3 mr-1" /> Invalid
+                          </span>
+                        )}
+                      </Label>
                       <Textarea
                         id="google-api-key"
                         placeholder="Enter your Google AI API key"
@@ -525,10 +804,33 @@ export function ResearchAssistant() {
                         onChange={(e) => setApiKeys((prev) => ({ ...prev, google: e.target.value }))}
                         className="bg-primary-black/60 border-gray-800"
                       />
+                      <p className="text-xs text-secondary-light/60">
+                        Get your API key from{" "}
+                        <a
+                          href="https://makersuite.google.com/app/apikey"
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="text-primary-orange hover:underline"
+                        >
+                          Google AI Studio
+                        </a>
+                      </p>
                     </div>
 
                     <div className="space-y-2">
-                      <Label htmlFor="openai-api-key">OpenAI API Key</Label>
+                      <Label htmlFor="openai-api-key" className="flex items-center">
+                        OpenAI API Key
+                        {apiKeyValidationStatus["openai"] === true && (
+                          <span className="ml-2 text-xs text-green-500 flex items-center">
+                            <Check className="h-3 w-3 mr-1" /> Valid
+                          </span>
+                        )}
+                        {apiKeyValidationStatus["openai"] === false && apiKeys.openai && (
+                          <span className="ml-2 text-xs text-red-500 flex items-center">
+                            <AlertCircle className="h-3 w-3 mr-1" /> Invalid
+                          </span>
+                        )}
+                      </Label>
                       <Textarea
                         id="openai-api-key"
                         placeholder="Enter your OpenAI API key"
@@ -536,10 +838,33 @@ export function ResearchAssistant() {
                         onChange={(e) => setApiKeys((prev) => ({ ...prev, openai: e.target.value }))}
                         className="bg-primary-black/60 border-gray-800"
                       />
+                      <p className="text-xs text-secondary-light/60">
+                        Get your API key from{" "}
+                        <a
+                          href="https://platform.openai.com/api-keys"
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="text-primary-orange hover:underline"
+                        >
+                          OpenAI Platform
+                        </a>
+                      </p>
                     </div>
 
                     <div className="space-y-2">
-                      <Label htmlFor="huggingface-api-key">Hugging Face API Key</Label>
+                      <Label htmlFor="huggingface-api-key" className="flex items-center">
+                        Hugging Face API Key
+                        {apiKeyValidationStatus["huggingface"] === true && (
+                          <span className="ml-2 text-xs text-green-500 flex items-center">
+                            <Check className="h-3 w-3 mr-1" /> Valid
+                          </span>
+                        )}
+                        {apiKeyValidationStatus["huggingface"] === false && apiKeys.huggingface && (
+                          <span className="ml-2 text-xs text-red-500 flex items-center">
+                            <AlertCircle className="h-3 w-3 mr-1" /> Invalid
+                          </span>
+                        )}
+                      </Label>
                       <Textarea
                         id="huggingface-api-key"
                         placeholder="Enter your Hugging Face API key"
@@ -547,19 +872,21 @@ export function ResearchAssistant() {
                         onChange={(e) => setApiKeys((prev) => ({ ...prev, huggingface: e.target.value }))}
                         className="bg-primary-black/60 border-gray-800"
                       />
+                      <p className="text-xs text-secondary-light/60">
+                        Get your API key from{" "}
+                        <a
+                          href="https://huggingface.co/settings/tokens"
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="text-primary-orange hover:underline"
+                        >
+                          Hugging Face
+                        </a>
+                      </p>
                     </div>
 
-                    <Button
-                      className="w-full bg-primary-orange hover:bg-primary-gold text-white"
-                      onClick={() => {
-                        checkAvailableModels()
-                        toast({
-                          title: "API Keys Saved",
-                          description: "Your API keys have been saved for this session",
-                        })
-                      }}
-                    >
-                      Save API Keys
+                    <Button className="w-full bg-primary-orange hover:bg-primary-gold text-white" onClick={saveApiKeys}>
+                      Save & Validate API Keys
                     </Button>
                   </TabsContent>
 
@@ -581,6 +908,12 @@ export function ResearchAssistant() {
                   </TabsContent>
                 </Tabs>
               </div>
+
+              <SheetFooter>
+                <Button variant="outline" onClick={() => setShowSettings(false)} className="border-gray-700">
+                  Close
+                </Button>
+              </SheetFooter>
             </SheetContent>
           </Sheet>
         </div>
@@ -681,19 +1014,16 @@ export function ResearchAssistant() {
                           >
                             <Copy className="h-3 w-3" />
                           </Button>
-                          {message.role === "assistant" &&
-                            (
-                              <Button 
-                              variant="ghost" 
-                              size="icon" 
-                              className="h-
-                              size=\"icon" 
+                          {message.role === "assistant" && (
+                            <Button
+                              variant="ghost"
+                              size="icon"
                               className="h-6 w-6"
                               onClick={() => handleRetry(message.id)}
                             >
                               <RefreshCw className="h-3 w-3" />
                             </Button>
-                            )}
+                          )}
                         </div>
                       </div>
                     )}
